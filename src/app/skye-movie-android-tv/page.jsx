@@ -13,6 +13,50 @@ function MainComponent() {
   const [currentMedia, setCurrentMedia] = React.useState(null);
   const [showSearch, setShowSearch] = React.useState(false);
   const [error, setError] = React.useState(null);
+  const [focusedCategory, setFocusedCategory] = React.useState(0);
+  const [navigationMode, setNavigationMode] = React.useState("categories"); // "categories" or "content"
+
+  // Set document title and favicon with error handling
+  React.useEffect(() => {
+    try {
+      if (typeof document !== "undefined" && document.head) {
+        document.title = "Skye Movie - Android TV Streaming App";
+
+        // Create favicon safely
+        let favicon = document.querySelector('link[rel="icon"]');
+        if (!favicon) {
+          favicon = document.createElement("link");
+          favicon.rel = "icon";
+          favicon.type = "image/svg+xml";
+          favicon.href =
+            "data:image/svg+xml;charset=utf-8," +
+            encodeURIComponent(
+              '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🎬</text></svg>'
+            );
+          document.head.appendChild(favicon);
+        }
+
+        // Add meta tags safely
+        if (!document.querySelector('meta[name="viewport"]')) {
+          const viewport = document.createElement("meta");
+          viewport.name = "viewport";
+          viewport.content =
+            "width=device-width, initial-scale=1.0, user-scalable=no";
+          document.head.appendChild(viewport);
+        }
+
+        if (!document.querySelector('meta[name="description"]')) {
+          const description = document.createElement("meta");
+          description.name = "description";
+          description.content =
+            "Skye Movie - Stream movies and TV shows on Android TV with Google TV remote support";
+          document.head.appendChild(description);
+        }
+      }
+    } catch (error) {
+      console.error("Error setting up document head:", error);
+    }
+  }, []);
 
   // Load popular movies and TV shows on startup
   React.useEffect(() => {
@@ -21,6 +65,7 @@ function MainComponent() {
 
   const loadPopularContent = async () => {
     setLoading(true);
+    setError(null);
     try {
       // Load popular movies
       const movieResponse = await fetch("/api/search", {
@@ -29,33 +74,64 @@ function MainComponent() {
         body: JSON.stringify({ query: "popular", type: "movie" }),
       });
 
-      if (movieResponse.ok) {
-        const movieData = await movieResponse.json();
-
-        // Load popular TV shows
-        const tvResponse = await fetch("/api/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: "popular", type: "tv" }),
-        });
-
-        if (tvResponse.ok) {
-          const tvData = await tvResponse.json();
-
-          const combinedContent = [
-            ...movieData.results.map((item) => ({
-              ...item,
-              category: "movies",
-            })),
-            ...tvData.results.map((item) => ({ ...item, category: "series" })),
-          ];
-
-          setMovies(combinedContent);
-        }
+      if (!movieResponse.ok) {
+        throw new Error(
+          `Movie API error: ${movieResponse.status} ${movieResponse.statusText}`
+        );
       }
+
+      const movieData = await movieResponse.json();
+
+      if (movieData.error) {
+        throw new Error(movieData.error);
+      }
+
+      // Load popular TV shows
+      const tvResponse = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "popular", type: "tv" }),
+      });
+
+      if (!tvResponse.ok) {
+        throw new Error(
+          `TV API error: ${tvResponse.status} ${tvResponse.statusText}`
+        );
+      }
+
+      const tvData = await tvResponse.json();
+
+      if (tvData.error) {
+        throw new Error(tvData.error);
+      }
+
+      const combinedContent = [
+        ...(movieData.results || []).map((item) => ({
+          ...item,
+          category: "movies",
+          title: item.title || item.name || "Unknown Title",
+          poster_path: item.poster_path
+            ? `https://image.tmdb.org/t/media/w500${item.poster_path}`
+            : null,
+          tmdb_id: item.id,
+          media_type: "movie",
+        })),
+        ...(tvData.results || []).map((item) => ({
+          ...item,
+          category: "series",
+          title: item.title || item.name || "Unknown Title",
+          poster_path: item.poster_path
+            ? `https://image.tmdb.org/t/media/w500${item.poster_path}`
+            : null,
+          tmdb_id: item.id,
+          media_type: "tv",
+        })),
+      ];
+
+      setMovies(combinedContent);
     } catch (error) {
       console.error("Failed to load content:", error);
-      setError("Failed to load content");
+      setError(`Failed to load content: ${error.message}`);
     }
     setLoading(false);
   };
@@ -67,6 +143,7 @@ function MainComponent() {
     }
 
     setIsSearching(true);
+    setError(null);
     try {
       const response = await fetch("/api/search", {
         method: "POST",
@@ -74,20 +151,41 @@ function MainComponent() {
         body: JSON.stringify({ query: query.trim(), type: "multi" }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setSearchResults(data.results || []);
-      } else {
-        setError("Search failed");
+      if (!response.ok) {
+        throw new Error(
+          `Search API error: ${response.status} ${response.statusText}`
+        );
       }
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const processedResults = (data.results || []).map((item) => ({
+        ...item,
+        title: item.title || item.name || "Unknown Title",
+        poster_path: item.poster_path
+          ? `https://image.tmdb.org/t/media/w500${item.poster_path}`
+          : null,
+        tmdb_id: item.id,
+        media_type: item.media_type || (item.first_air_date ? "tv" : "movie"),
+      }));
+
+      setSearchResults(processedResults);
     } catch (error) {
       console.error("Search error:", error);
-      setError("Search failed");
+      setError(`Search failed: ${error.message}`);
     }
     setIsSearching(false);
   };
 
   const playMedia = (media) => {
+    if (!media || !media.tmdb_id) {
+      setError("Cannot play media: Invalid media data");
+      return;
+    }
     setCurrentMedia(media);
     setShowPlayer(true);
   };
@@ -97,85 +195,196 @@ function MainComponent() {
     setCurrentMedia(null);
   };
 
-  // Handle remote control navigation
+  // Enhanced Google TV remote control navigation
   React.useEffect(() => {
     const handleKeyDown = (e) => {
-      if (showPlayer) {
-        if (e.key === "Escape" || e.key === "Back") {
-          e.preventDefault();
-          closePlayer();
+      try {
+        // Player controls
+        if (showPlayer) {
+          if (
+            e.key === "Escape" ||
+            e.key === "Back" ||
+            e.keyCode === 8 ||
+            e.keyCode === 27
+          ) {
+            e.preventDefault();
+            closePlayer();
+          }
+          return;
         }
-        return;
-      }
 
-      if (showSearch) {
-        if (e.key === "Escape" || e.key === "Back") {
-          e.preventDefault();
-          setShowSearch(false);
-          setSearchQuery("");
-          setSearchResults([]);
-          setFocusedItem(0);
+        // Search controls
+        if (showSearch) {
+          if (
+            e.key === "Escape" ||
+            e.key === "Back" ||
+            e.keyCode === 8 ||
+            e.keyCode === 27
+          ) {
+            e.preventDefault();
+            setShowSearch(false);
+            setSearchQuery("");
+            setSearchResults([]);
+            setFocusedItem(0);
+            setNavigationMode("categories");
+          }
+          return;
         }
-        return;
-      }
 
-      const currentMovies =
-        searchResults.length > 0
-          ? searchResults
-          : movies.filter((movie) => movie.category === selectedCategory);
+        const categories = ["movies", "series", "documentaries"];
+        const currentMovies =
+          searchResults.length > 0
+            ? searchResults
+            : movies.filter((movie) => movie.category === selectedCategory);
 
-      switch (e.key) {
-        case "ArrowLeft":
-          e.preventDefault();
-          setFocusedItem((prev) => Math.max(0, prev - 1));
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          setFocusedItem((prev) =>
-            Math.min(currentMovies.length - 1, prev + 1)
-          );
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          if (searchResults.length === 0) {
-            const categories = ["movies", "series", "documentaries"];
-            const currentIndex = categories.indexOf(selectedCategory);
-            if (currentIndex > 0) {
-              setSelectedCategory(categories[currentIndex - 1]);
+        // Navigation logic
+        switch (e.key) {
+          case "ArrowUp":
+            e.preventDefault();
+            if (navigationMode === "content" && currentMovies.length > 0) {
+              setNavigationMode("categories");
+              setFocusedCategory(categories.indexOf(selectedCategory));
+            }
+            break;
+
+          case "ArrowDown":
+            e.preventDefault();
+            if (navigationMode === "categories" && currentMovies.length > 0) {
+              setNavigationMode("content");
               setFocusedItem(0);
             }
-          }
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          if (searchResults.length === 0) {
-            const categories = ["movies", "series", "documentaries"];
-            const currentIndex = categories.indexOf(selectedCategory);
-            if (currentIndex < categories.length - 1) {
-              setSelectedCategory(categories[currentIndex + 1]);
+            break;
+
+          case "ArrowLeft":
+            e.preventDefault();
+            if (navigationMode === "categories") {
+              const newIndex = Math.max(0, focusedCategory - 1);
+              setFocusedCategory(newIndex);
+              setSelectedCategory(categories[newIndex]);
+              setFocusedItem(0);
+            } else if (navigationMode === "content") {
+              setFocusedItem((prev) => Math.max(0, prev - 1));
+            }
+            break;
+
+          case "ArrowRight":
+            e.preventDefault();
+            if (navigationMode === "categories") {
+              const newIndex = Math.min(
+                categories.length - 1,
+                focusedCategory + 1
+              );
+              setFocusedCategory(newIndex);
+              setSelectedCategory(categories[newIndex]);
+              setFocusedItem(0);
+            } else if (navigationMode === "content") {
+              setFocusedItem((prev) =>
+                Math.min(currentMovies.length - 1, prev + 1)
+              );
+            }
+            break;
+
+          case "Enter":
+          case " ": // Space bar (OK button on some remotes)
+            e.preventDefault();
+            if (navigationMode === "content" && currentMovies[focusedItem]) {
+              playMedia(currentMovies[focusedItem]);
+            } else if (navigationMode === "categories") {
+              setNavigationMode("content");
               setFocusedItem(0);
             }
-          }
-          break;
-        case "Enter":
-          e.preventDefault();
-          if (currentMovies[focusedItem]) {
-            playMedia(currentMovies[focusedItem]);
-          }
-          break;
-        case "s":
-        case "S":
-          e.preventDefault();
-          setShowSearch(true);
-          break;
+            break;
+
+          case "s":
+          case "S":
+            e.preventDefault();
+            setShowSearch(true);
+            setNavigationMode("categories");
+            break;
+
+          case "r":
+          case "R":
+            e.preventDefault();
+            loadPopularContent();
+            break;
+
+          case "Escape":
+          case "Back":
+            e.preventDefault();
+            if (navigationMode === "content") {
+              setNavigationMode("categories");
+            }
+            break;
+        }
+
+        // Handle numeric keycodes for older TV remotes
+        switch (e.keyCode) {
+          case 37: // Left arrow
+            e.preventDefault();
+            if (navigationMode === "categories") {
+              const newIndex = Math.max(0, focusedCategory - 1);
+              setFocusedCategory(newIndex);
+              setSelectedCategory(categories[newIndex]);
+              setFocusedItem(0);
+            } else if (navigationMode === "content") {
+              setFocusedItem((prev) => Math.max(0, prev - 1));
+            }
+            break;
+          case 39: // Right arrow
+            e.preventDefault();
+            if (navigationMode === "categories") {
+              const newIndex = Math.min(
+                categories.length - 1,
+                focusedCategory + 1
+              );
+              setFocusedCategory(newIndex);
+              setSelectedCategory(categories[newIndex]);
+              setFocusedItem(0);
+            } else if (navigationMode === "content") {
+              setFocusedItem((prev) =>
+                Math.min(currentMovies.length - 1, prev + 1)
+              );
+            }
+            break;
+          case 38: // Up arrow
+            e.preventDefault();
+            if (navigationMode === "content" && currentMovies.length > 0) {
+              setNavigationMode("categories");
+              setFocusedCategory(categories.indexOf(selectedCategory));
+            }
+            break;
+          case 40: // Down arrow
+            e.preventDefault();
+            if (navigationMode === "categories" && currentMovies.length > 0) {
+              setNavigationMode("content");
+              setFocusedItem(0);
+            }
+            break;
+          case 13: // Enter
+          case 32: // Space
+            e.preventDefault();
+            if (navigationMode === "content" && currentMovies[focusedItem]) {
+              playMedia(currentMovies[focusedItem]);
+            } else if (navigationMode === "categories") {
+              setNavigationMode("content");
+              setFocusedItem(0);
+            }
+            break;
+        }
+      } catch (error) {
+        console.error("Keyboard navigation error:", error);
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
   }, [
     selectedCategory,
     focusedItem,
+    focusedCategory,
+    navigationMode,
     movies,
     searchResults,
     showPlayer,
@@ -195,12 +404,41 @@ function MainComponent() {
           color: "#fff",
           minHeight: "100vh",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
           fontSize: "24px",
+          fontFamily: "Arial, sans-serif",
         }}
       >
-        Loading Skye Movie...
+        <div
+          style={{
+            fontSize: "64px",
+            marginBottom: "30px",
+            animation: "pulse 2s infinite",
+          }}
+        >
+          🎬
+        </div>
+        <div style={{ fontSize: "28px", marginBottom: "15px" }}>
+          Loading Skye Movie...
+        </div>
+        <div
+          style={{
+            fontSize: "18px",
+            opacity: 0.7,
+            textAlign: "center",
+            maxWidth: "400px",
+          }}
+        >
+          Getting the latest movies and shows for your Google TV
+        </div>
+        <style jsx global>{`
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+          }
+        `}</style>
       </div>
     );
   }
@@ -222,17 +460,22 @@ function MainComponent() {
         <div
           style={{
             position: "absolute",
-            top: "20px",
-            left: "20px",
+            top: "30px",
+            left: "30px",
             zIndex: 1000,
-            backgroundColor: "rgba(0,0,0,0.8)",
+            backgroundColor: "rgba(0,0,0,0.9)",
             color: "#fff",
-            padding: "10px 20px",
-            borderRadius: "8px",
-            fontSize: "14px",
+            padding: "15px 25px",
+            borderRadius: "12px",
+            fontSize: "16px",
+            border: "2px solid #4ecdc4",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
           }}
         >
-          Press ESC or Back to return
+          <span style={{ fontSize: "20px" }}>⬅️</span>
+          Press BACK button to return
         </div>
         <iframe
           src={playerUrl}
@@ -242,7 +485,11 @@ function MainComponent() {
             border: "none",
           }}
           allowFullScreen
-          title={`Playing ${currentMedia.title}`}
+          title={`Playing ${currentMedia.title || "Video"}`}
+          onError={() => {
+            setError("Failed to load video player");
+            closePlayer();
+          }}
         />
       </div>
     );
@@ -255,25 +502,29 @@ function MainComponent() {
           backgroundColor: "#000",
           color: "#fff",
           minHeight: "100vh",
-          padding: "40px",
+          padding: "50px",
+          fontFamily: "Arial, sans-serif",
         }}
       >
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            marginBottom: "40px",
-            gap: "20px",
+            marginBottom: "50px",
+            gap: "30px",
           }}
         >
           <div
             style={{
-              fontSize: "36px",
+              fontSize: "42px",
               fontWeight: "bold",
               color: "#4ecdc4",
+              display: "flex",
+              alignItems: "center",
+              gap: "15px",
             }}
           >
-            SEARCH
+            🔍 SEARCH
           </div>
           <input
             type="text"
@@ -286,29 +537,46 @@ function MainComponent() {
             autoFocus
             style={{
               flex: 1,
-              padding: "15px 20px",
-              fontSize: "18px",
+              padding: "20px 25px",
+              fontSize: "20px",
               backgroundColor: "#1a1a1a",
               color: "#fff",
-              border: "2px solid #4ecdc4",
-              borderRadius: "8px",
+              border: "3px solid #4ecdc4",
+              borderRadius: "12px",
               outline: "none",
             }}
           />
           <div
             style={{
-              fontSize: "14px",
+              fontSize: "16px",
               opacity: 0.7,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
             }}
           >
-            ESC to close
+            <span style={{ fontSize: "20px" }}>⬅️</span>
+            BACK to close
           </div>
         </div>
 
         {isSearching && (
           <div
-            style={{ textAlign: "center", fontSize: "18px", margin: "40px 0" }}
+            style={{
+              textAlign: "center",
+              fontSize: "22px",
+              margin: "50px 0",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "15px",
+            }}
           >
+            <span
+              style={{ fontSize: "28px", animation: "spin 1s linear infinite" }}
+            >
+              🔄
+            </span>
             Searching...
           </div>
         )}
@@ -317,28 +585,32 @@ function MainComponent() {
           <div
             style={{
               display: "flex",
-              gap: "20px",
+              gap: "25px",
               overflowX: "auto",
-              paddingBottom: "20px",
+              paddingBottom: "30px",
             }}
           >
             {searchResults.map((media, index) => (
               <div
-                key={media.id}
+                key={`${media.id}-${index}`}
                 style={{
-                  minWidth: "200px",
+                  minWidth: "220px",
                   textAlign: "center",
                   cursor: "pointer",
-                  transform: focusedItem === index ? "scale(1.1)" : "scale(1)",
-                  transition: "transform 0.3s ease",
+                  transform: focusedItem === index ? "scale(1.15)" : "scale(1)",
+                  transition: "all 0.3s ease",
                   border:
                     focusedItem === index
-                      ? "3px solid #4ecdc4"
-                      : "3px solid transparent",
-                  borderRadius: "12px",
-                  padding: "10px",
+                      ? "4px solid #4ecdc4"
+                      : "4px solid transparent",
+                  borderRadius: "16px",
+                  padding: "15px",
                   backgroundColor:
                     focusedItem === index ? "#1a1a1a" : "transparent",
+                  boxShadow:
+                    focusedItem === index
+                      ? "0 0 20px rgba(78, 205, 196, 0.5)"
+                      : "none",
                 }}
                 onClick={() => {
                   setFocusedItem(index);
@@ -350,33 +622,41 @@ function MainComponent() {
                     media.poster_path ||
                     "https://via.placeholder.com/300x450/333/fff?text=No+Image"
                   }
-                  alt={media.title}
+                  alt={media.title || "Movie Poster"}
                   style={{
                     width: "100%",
-                    height: "280px",
+                    height: "300px",
                     objectFit: "cover",
-                    borderRadius: "8px",
-                    marginBottom: "10px",
+                    borderRadius: "12px",
+                    marginBottom: "15px",
+                  }}
+                  onError={(e) => {
+                    e.target.src =
+                      "https://via.placeholder.com/300x450/333/fff?text=No+Image";
                   }}
                 />
                 <div
                   style={{
-                    fontSize: "16px",
+                    fontSize: "18px",
                     fontWeight: "bold",
                     color: focusedItem === index ? "#4ecdc4" : "#fff",
-                    marginBottom: "5px",
+                    marginBottom: "8px",
+                    lineHeight: "1.3",
                   }}
                 >
                   {media.title}
                 </div>
                 <div
                   style={{
-                    fontSize: "12px",
+                    fontSize: "14px",
                     opacity: 0.7,
                     textTransform: "uppercase",
+                    letterSpacing: "1px",
                   }}
                 >
-                  {media.media_type} {media.year && `(${media.year})`}
+                  {media.media_type === "movie" ? "🎬 MOVIE" : "📺 TV SHOW"}
+                  {media.release_date &&
+                    ` (${new Date(media.release_date).getFullYear()})`}
                 </div>
               </div>
             ))}
@@ -387,14 +667,26 @@ function MainComponent() {
           <div
             style={{
               textAlign: "center",
-              fontSize: "18px",
-              margin: "40px 0",
+              fontSize: "22px",
+              margin: "50px 0",
               opacity: 0.7,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "15px",
             }}
           >
+            <span style={{ fontSize: "48px" }}>😔</span>
             No results found for "{searchQuery}"
           </div>
         )}
+
+        <style jsx global>{`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -405,7 +697,7 @@ function MainComponent() {
         backgroundColor: "#000",
         color: "#fff",
         minHeight: "100vh",
-        padding: "40px",
+        padding: "50px",
         fontFamily: "Arial, sans-serif",
       }}
     >
@@ -414,28 +706,34 @@ function MainComponent() {
         style={{
           display: "flex",
           alignItems: "center",
-          marginBottom: "40px",
-          borderBottom: "2px solid #333",
-          paddingBottom: "20px",
+          marginBottom: "50px",
+          borderBottom: "3px solid #333",
+          paddingBottom: "30px",
         }}
       >
         <div
           style={{
-            fontSize: "36px",
+            fontSize: "42px",
             fontWeight: "bold",
             color: "#4ecdc4",
+            display: "flex",
+            alignItems: "center",
+            gap: "15px",
           }}
         >
-          SKYE MOVIE
+          🎬 SKYE MOVIE
         </div>
         <div
           style={{
             marginLeft: "auto",
-            fontSize: "18px",
+            fontSize: "16px",
             opacity: 0.7,
+            textAlign: "right",
+            lineHeight: "1.4",
           }}
         >
-          ↑↓ Categories | ←→ Browse | Enter Play | S Search
+          <div>🎮 Google TV Remote:</div>
+          <div>↑↓ Navigate | OK Select | BACK Return | Search 🔍</div>
         </div>
       </div>
 
@@ -444,13 +742,34 @@ function MainComponent() {
           style={{
             backgroundColor: "#ff4444",
             color: "#fff",
-            padding: "15px",
-            borderRadius: "8px",
-            marginBottom: "20px",
+            padding: "20px",
+            borderRadius: "12px",
+            marginBottom: "30px",
             textAlign: "center",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "15px",
+            fontSize: "18px",
           }}
         >
+          <span style={{ fontSize: "24px" }}>⚠️</span>
           {error}
+          <button
+            onClick={loadPopularContent}
+            style={{
+              backgroundColor: "transparent",
+              border: "2px solid #fff",
+              color: "#fff",
+              padding: "8px 16px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "bold",
+            }}
+          >
+            🔄 Retry
+          </button>
         </div>
       )}
 
@@ -458,125 +777,215 @@ function MainComponent() {
       <div
         style={{
           display: "flex",
-          gap: "30px",
-          marginBottom: "30px",
+          gap: "40px",
+          marginBottom: "40px",
+          justifyContent: "center",
         }}
       >
-        {["movies", "series", "documentaries"].map((category) => (
+        {["movies", "series", "documentaries"].map((category, index) => (
           <div
             key={category}
             style={{
-              padding: "12px 24px",
-              fontSize: "20px",
+              padding: "18px 32px",
+              fontSize: "22px",
               fontWeight: selectedCategory === category ? "bold" : "normal",
               color: selectedCategory === category ? "#4ecdc4" : "#fff",
               backgroundColor:
                 selectedCategory === category ? "#1a1a1a" : "transparent",
               border:
-                selectedCategory === category
-                  ? "2px solid #4ecdc4"
-                  : "2px solid transparent",
-              borderRadius: "8px",
+                navigationMode === "categories" && focusedCategory === index
+                  ? "4px solid #4ecdc4"
+                  : selectedCategory === category
+                  ? "3px solid #4ecdc4"
+                  : "3px solid transparent",
+              borderRadius: "12px",
               textTransform: "uppercase",
               cursor: "pointer",
+              transition: "all 0.3s ease",
+              transform:
+                navigationMode === "categories" && focusedCategory === index
+                  ? "scale(1.1)"
+                  : "scale(1)",
+              boxShadow:
+                navigationMode === "categories" && focusedCategory === index
+                  ? "0 0 20px rgba(78, 205, 196, 0.5)"
+                  : "none",
+              letterSpacing: "1px",
             }}
             onClick={() => {
               setSelectedCategory(category);
+              setFocusedCategory(index);
               setFocusedItem(0);
+              setNavigationMode("content");
             }}
           >
+            {category === "movies" && "🎬 "}
+            {category === "series" && "📺 "}
+            {category === "documentaries" && "📖 "}
             {category}
           </div>
         ))}
       </div>
 
       {/* Movie Grid */}
-      <div
-        style={{
-          display: "flex",
-          gap: "20px",
-          overflowX: "auto",
-          paddingBottom: "20px",
-        }}
-      >
-        {currentMovies.map((movie, index) => (
-          <div
-            key={movie.id}
-            style={{
-              minWidth: "200px",
-              textAlign: "center",
-              cursor: "pointer",
-              transform: focusedItem === index ? "scale(1.1)" : "scale(1)",
-              transition: "transform 0.3s ease",
-              border:
-                focusedItem === index
-                  ? "3px solid #4ecdc4"
-                  : "3px solid transparent",
-              borderRadius: "12px",
-              padding: "10px",
-              backgroundColor:
-                focusedItem === index ? "#1a1a1a" : "transparent",
-            }}
-            onClick={() => {
-              setFocusedItem(index);
-              setTimeout(() => playMedia(movie), 100);
-            }}
-          >
-            <img
-              src={
-                movie.poster_path ||
-                "https://via.placeholder.com/300x450/333/fff?text=No+Image"
-              }
-              alt={movie.title}
-              style={{
-                width: "100%",
-                height: "280px",
-                objectFit: "cover",
-                borderRadius: "8px",
-                marginBottom: "10px",
-              }}
-            />
+      {currentMovies.length > 0 ? (
+        <div
+          style={{
+            display: "flex",
+            gap: "25px",
+            overflowX: "auto",
+            paddingBottom: "30px",
+            paddingTop: "10px",
+          }}
+        >
+          {currentMovies.map((movie, index) => (
             <div
+              key={`${movie.id}-${index}`}
               style={{
-                fontSize: "16px",
-                fontWeight: "bold",
-                color: focusedItem === index ? "#4ecdc4" : "#fff",
-                marginBottom: "5px",
+                minWidth: "220px",
+                textAlign: "center",
+                cursor: "pointer",
+                transform:
+                  navigationMode === "content" && focusedItem === index
+                    ? "scale(1.15)"
+                    : "scale(1)",
+                transition: "all 0.3s ease",
+                border:
+                  navigationMode === "content" && focusedItem === index
+                    ? "4px solid #4ecdc4"
+                    : "4px solid transparent",
+                borderRadius: "16px",
+                padding: "15px",
+                backgroundColor:
+                  navigationMode === "content" && focusedItem === index
+                    ? "#1a1a1a"
+                    : "transparent",
+                boxShadow:
+                  navigationMode === "content" && focusedItem === index
+                    ? "0 0 20px rgba(78, 205, 196, 0.5)"
+                    : "none",
+              }}
+              onClick={() => {
+                setFocusedItem(index);
+                setNavigationMode("content");
+                setTimeout(() => playMedia(movie), 100);
               }}
             >
-              {movie.title}
-            </div>
-            {movie.vote_average && (
+              <img
+                src={
+                  movie.poster_path ||
+                  "https://via.placeholder.com/300x450/333/fff?text=No+Image"
+                }
+                alt={movie.title || "Movie Poster"}
+                style={{
+                  width: "100%",
+                  height: "300px",
+                  objectFit: "cover",
+                  borderRadius: "12px",
+                  marginBottom: "15px",
+                }}
+                onError={(e) => {
+                  e.target.src =
+                    "https://via.placeholder.com/300x450/333/fff?text=No+Image";
+                }}
+              />
+              <div
+                style={{
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                  color:
+                    navigationMode === "content" && focusedItem === index
+                      ? "#4ecdc4"
+                      : "#fff",
+                  marginBottom: "8px",
+                  lineHeight: "1.3",
+                }}
+              >
+                {movie.title}
+              </div>
+              {movie.vote_average && (
+                <div
+                  style={{
+                    fontSize: "14px",
+                    opacity: 0.7,
+                    marginBottom: "5px",
+                  }}
+                >
+                  ⭐ {movie.vote_average.toFixed(1)}
+                </div>
+              )}
               <div
                 style={{
                   fontSize: "12px",
-                  opacity: 0.7,
+                  opacity: 0.6,
+                  textTransform: "uppercase",
+                  letterSpacing: "1px",
                 }}
               >
-                ⭐ {movie.vote_average.toFixed(1)}
+                {movie.category === "movies" ? "🎬 MOVIE" : "📺 SERIES"}
               </div>
-            )}
-          </div>
-        ))}
-      </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            textAlign: "center",
+            fontSize: "22px",
+            margin: "60px 0",
+            opacity: 0.7,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "20px",
+          }}
+        >
+          <span style={{ fontSize: "64px" }}>📺</span>
+          <div>No content available for {selectedCategory}</div>
+          <button
+            onClick={loadPopularContent}
+            style={{
+              backgroundColor: "#4ecdc4",
+              color: "#000",
+              border: "none",
+              padding: "12px 24px",
+              borderRadius: "8px",
+              fontSize: "16px",
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            🔄 Refresh Content
+          </button>
+        </div>
+      )}
 
       {/* Footer Instructions */}
       <div
         style={{
           position: "fixed",
-          bottom: "20px",
-          left: "40px",
-          right: "40px",
+          bottom: "30px",
+          left: "50px",
+          right: "50px",
           textAlign: "center",
-          fontSize: "14px",
-          opacity: 0.6,
-          backgroundColor: "rgba(0,0,0,0.8)",
-          padding: "10px",
-          borderRadius: "8px",
+          fontSize: "16px",
+          opacity: 0.8,
+          backgroundColor: "rgba(0,0,0,0.9)",
+          padding: "15px 20px",
+          borderRadius: "12px",
+          border: "2px solid #333",
+          lineHeight: "1.4",
         }}
       >
-        Remote Control: ↑↓ Categories | ←→ Browse | Enter Play | S Search |
-        Back/ESC Exit
+        <div
+          style={{ marginBottom: "5px", fontWeight: "bold", color: "#4ecdc4" }}
+        >
+          🎮 Google TV Remote Controls:
+        </div>
+        <div>
+          Direction Pad: Navigate | OK Button: Select/Play | BACK: Return |
+          Voice: "Search" for 🔍
+        </div>
       </div>
     </div>
   );
