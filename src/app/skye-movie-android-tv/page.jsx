@@ -66,40 +66,61 @@ function MainComponent() {
   const loadPopularContent = async () => {
     setLoading(true);
     setError(null);
+
+    console.log("Starting to load popular content...");
+
     try {
       // Load popular movies
+      console.log("Fetching popular movies...");
       const movieResponse = await fetch("/api/search", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({ query: "popular", type: "movie" }),
       });
 
+      console.log("Movie response status:", movieResponse.status);
+
       if (!movieResponse.ok) {
+        const errorText = await movieResponse.text();
+        console.error("Movie API error response:", errorText);
         throw new Error(
-          `Movie API error: ${movieResponse.status} ${movieResponse.statusText}`
+          `Movie API error: ${movieResponse.status} ${movieResponse.statusText} - ${errorText}`
         );
       }
 
       const movieData = await movieResponse.json();
+      console.log("Movie data received:", movieData);
 
       if (movieData.error) {
         throw new Error(movieData.error);
       }
 
       // Load popular TV shows
+      console.log("Fetching popular TV shows...");
       const tvResponse = await fetch("/api/search", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({ query: "popular", type: "tv" }),
       });
 
+      console.log("TV response status:", tvResponse.status);
+
       if (!tvResponse.ok) {
+        const errorText = await tvResponse.text();
+        console.error("TV API error response:", errorText);
         throw new Error(
-          `TV API error: ${tvResponse.status} ${tvResponse.statusText}`
+          `TV API error: ${tvResponse.status} ${tvResponse.statusText} - ${errorText}`
         );
       }
 
       const tvData = await tvResponse.json();
+      console.log("TV data received:", tvData);
 
       if (tvData.error) {
         throw new Error(tvData.error);
@@ -110,28 +131,160 @@ function MainComponent() {
           ...item,
           category: "movies",
           title: item.title || item.name || "Unknown Title",
-          poster_path: item.poster_path
-            ? `https://image.tmdb.org/t/media/w500${item.poster_path}`
-            : null,
-          tmdb_id: item.id,
+          poster_path: item.poster_path ? item.poster_path : null, // API already returns full URL
+          tmdb_id: item.id || item.tmdb_id,
           media_type: "movie",
         })),
         ...(tvData.results || []).map((item) => ({
           ...item,
           category: "series",
           title: item.title || item.name || "Unknown Title",
-          poster_path: item.poster_path
-            ? `https://image.tmdb.org/t/media/w500${item.poster_path}`
-            : null,
-          tmdb_id: item.id,
+          poster_path: item.poster_path ? item.poster_path : null, // API already returns full URL
+          tmdb_id: item.id || item.tmdb_id,
           media_type: "tv",
         })),
       ];
 
+      console.log("Combined content:", combinedContent.length, "items");
       setMovies(combinedContent);
     } catch (error) {
       console.error("Failed to load content:", error);
       setError(`Failed to load content: ${error.message}`);
+
+      // Fallback: Set some dummy data so the app doesn't break completely
+      setMovies([
+        {
+          id: 1,
+          tmdb_id: 550,
+          title: "Fight Club",
+          category: "movies",
+          media_type: "movie",
+          poster_path: null,
+          vote_average: 8.8,
+        },
+        {
+          id: 2,
+          tmdb_id: 1399,
+          title: "Game of Thrones",
+          category: "series",
+          media_type: "tv",
+          poster_path: null,
+          vote_average: 9.2,
+        },
+      ]);
+    }
+    setLoading(false);
+  };
+
+  const loadTopContent = async () => {
+    setLoading(true);
+    setError(null);
+
+    console.log("Starting to load top content...");
+
+    try {
+      // Load top movies
+      console.log("Fetching top movies...");
+      const movieResponse = await fetch("/api/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ query: "top", type: "movie" }),
+      });
+
+      console.log("Movie response status:", movieResponse.status);
+
+      if (!movieResponse.ok) {
+        const errorText = await movieResponse.text();
+        console.error("Movie API error response:", errorText);
+        throw new Error(
+          `Movie API error: ${movieResponse.status} ${movieResponse.statusText} - ${errorText}`
+        );
+      }
+
+      const movieData = await movieResponse.json();
+      console.log("Movie data received:", movieData);
+
+      if (movieData.error) {
+        throw new Error(movieData.error);
+      }
+
+      // Load top TV shows
+      console.log("Fetching top TV shows...");
+      const tvResponse = await fetch("/api/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ query: "top", type: "tv" }),
+      });
+
+      console.log("TV response status:", tvResponse.status);
+
+      if (!tvResponse.ok) {
+        const errorText = await tvResponse.text();
+        console.error("TV API error response:", errorText);
+        throw new Error(
+          `TV API error: ${tvResponse.status} ${tvResponse.statusText} - ${errorText}`
+        );
+      }
+
+      const tvData = await tvResponse.json();
+      console.log("TV data received:", tvData);
+
+      if (tvData.error) {
+        throw new Error(tvData.error);
+      }
+
+      const combinedContent = [
+        ...(movieData.results || []).map((item) => ({
+          ...item,
+          category: "movies",
+          title: item.title || item.name || "Unknown Title",
+          poster_path: item.poster_path ? item.poster_path : null, // API already returns full URL
+          tmdb_id: item.id || item.tmdb_id,
+          media_type: "movie",
+        })),
+        ...(tvData.results || []).map((item) => ({
+          ...item,
+          category: "series",
+          title: item.title || item.name || "Unknown Title",
+          poster_path: item.poster_path ? item.poster_path : null, // API already returns full URL
+          tmdb_id: item.id || item.tmdb_id,
+          media_type: "tv",
+        })),
+      ];
+
+      console.log("Combined content:", combinedContent.length, "items");
+      setMovies(combinedContent);
+    } catch (error) {
+      console.error("Failed to load content:", error);
+      setError(`Failed to load content: ${error.message}`);
+
+      // Fallback: Set some dummy data so the app doesn't break completely
+      setMovies([
+        {
+          id: 1,
+          tmdb_id: 550,
+          title: "Fight Club",
+          category: "movies",
+          media_type: "movie",
+          poster_path: null,
+          vote_average: 8.8,
+        },
+        {
+          id: 2,
+          tmdb_id: 1399,
+          title: "Game of Thrones",
+          category: "series",
+          media_type: "tv",
+          poster_path: null,
+          vote_average: 9.2,
+        },
+      ]);
     }
     setLoading(false);
   };
@@ -166,10 +319,8 @@ function MainComponent() {
       const processedResults = (data.results || []).map((item) => ({
         ...item,
         title: item.title || item.name || "Unknown Title",
-        poster_path: item.poster_path
-          ? `https://image.tmdb.org/t/media/w500${item.poster_path}`
-          : null,
-        tmdb_id: item.id,
+        poster_path: item.poster_path || null, // API already returns full URL
+        tmdb_id: item.tmdb_id || item.id,
         media_type: item.media_type || (item.first_air_date ? "tv" : "movie"),
       }));
 
@@ -305,7 +456,7 @@ function MainComponent() {
           case "r":
           case "R":
             e.preventDefault();
-            loadPopularContent();
+            loadTopContent();
             break;
 
           case "Escape":
@@ -444,10 +595,33 @@ function MainComponent() {
   }
 
   if (showPlayer && currentMedia) {
-    const playerUrl =
-      currentMedia.media_type === "movie"
-        ? `https://mappletv.uk/watch/movie/${currentMedia.tmdb_id}`
-        : `https://mappletv.uk/watch/tv/${currentMedia.tmdb_id}-1-1`;
+    // Enhanced player URL with Android TV optimizations
+    let playerUrl;
+    const playerParams = new URLSearchParams({
+      autoPlay: "true",
+      theme: "4ecdc4", // Match app's teal theme
+      title: "true",
+      poster: "true",
+    });
+
+    if (currentMedia.media_type === "movie") {
+      playerUrl = `https://mappletv.uk/watch/movie/${
+        currentMedia.tmdb_id
+      }?${playerParams.toString()}`;
+    } else {
+      // For TV shows, default to Season 1 Episode 1 with enhanced features
+      const tvParams = new URLSearchParams({
+        autoPlay: "true",
+        theme: "4ecdc4",
+        title: "true",
+        poster: "true",
+        nextButton: "true", // Show next episode button
+        autoNext: "false", // Don't auto-play next episode (user choice)
+      });
+      playerUrl = `https://mappletv.uk/watch/tv/${
+        currentMedia.tmdb_id
+      }-1-1?${tvParams.toString()}`;
+    }
 
     return (
       <div
@@ -457,26 +631,61 @@ function MainComponent() {
           position: "relative",
         }}
       >
+        {/* Enhanced player controls overlay */}
         <div
           style={{
             position: "absolute",
-            top: "30px",
-            left: "30px",
+            top: "20px",
+            left: "20px",
+            right: "20px",
             zIndex: 1000,
-            backgroundColor: "rgba(0,0,0,0.9)",
-            color: "#fff",
-            padding: "15px 25px",
-            borderRadius: "12px",
-            fontSize: "16px",
-            border: "2px solid #4ecdc4",
             display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: "10px",
+            pointerEvents: "none",
           }}
         >
-          <span style={{ fontSize: "20px" }}>⬅️</span>
-          Press BACK button to return
+          <div
+            style={{
+              backgroundColor: "rgba(0,0,0,0.9)",
+              color: "#fff",
+              padding: "12px 20px",
+              borderRadius: "10px",
+              fontSize: "16px",
+              border: "2px solid #4ecdc4",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              pointerEvents: "auto",
+            }}
+          >
+            <span style={{ fontSize: "20px" }}>⬅️</span>
+            Press BACK to return
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "rgba(0,0,0,0.9)",
+              color: "#4ecdc4",
+              padding: "12px 20px",
+              borderRadius: "10px",
+              fontSize: "14px",
+              border: "2px solid #4ecdc4",
+              textAlign: "center",
+              maxWidth: "300px",
+            }}
+          >
+            <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+              {currentMedia.media_type === "movie" ? "🎬 MOVIE" : "📺 TV SHOW"}
+            </div>
+            <div style={{ fontSize: "12px", opacity: 0.8 }}>
+              {currentMedia.title}
+              {currentMedia.media_type === "tv" && " - S1E1"}
+            </div>
+          </div>
         </div>
+
+        {/* Player iframe with enhanced error handling */}
         <iframe
           src={playerUrl}
           style={{
@@ -485,12 +694,35 @@ function MainComponent() {
             border: "none",
           }}
           allowFullScreen
+          allow="autoplay; fullscreen; picture-in-picture"
           title={`Playing ${currentMedia.title || "Video"}`}
-          onError={() => {
-            setError("Failed to load video player");
+          onLoad={() => {
+            console.log(`Player loaded successfully: ${currentMedia.title}`);
+          }}
+          onError={(e) => {
+            console.error("Player iframe error:", e);
+            setError("Failed to load video player. Please try again.");
             closePlayer();
           }}
         />
+
+        {/* Loading indicator for slow connections */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: "30px",
+            right: "30px",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            color: "#4ecdc4",
+            padding: "10px 15px",
+            borderRadius: "8px",
+            fontSize: "12px",
+            border: "1px solid #4ecdc4",
+            opacity: 0.7,
+          }}
+        >
+          🎮 Use remote controls in player
+        </div>
       </div>
     );
   }
@@ -756,7 +988,7 @@ function MainComponent() {
           <span style={{ fontSize: "24px" }}>⚠️</span>
           {error}
           <button
-            onClick={loadPopularContent}
+            onClick={loadTopContent}
             style={{
               backgroundColor: "transparent",
               border: "2px solid #fff",
@@ -836,6 +1068,8 @@ function MainComponent() {
             overflowX: "auto",
             paddingBottom: "30px",
             paddingTop: "10px",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
           }}
         >
           {currentMovies.map((movie, index) => (
@@ -922,7 +1156,11 @@ function MainComponent() {
                   letterSpacing: "1px",
                 }}
               >
-                {movie.category === "movies" ? "🎬 MOVIE" : "📺 SERIES"}
+                {movie.category === "movies"
+                  ? "🎬 MOVIE"
+                  : movie.category === "series"
+                  ? "📺 SERIES"
+                  : "📖 DOC"}
               </div>
             </div>
           ))}
@@ -943,7 +1181,7 @@ function MainComponent() {
           <span style={{ fontSize: "64px" }}>📺</span>
           <div>No content available for {selectedCategory}</div>
           <button
-            onClick={loadPopularContent}
+            onClick={loadTopContent}
             style={{
               backgroundColor: "#4ecdc4",
               color: "#000",
@@ -959,6 +1197,13 @@ function MainComponent() {
           </button>
         </div>
       )}
+
+      {/* Add CSS to hide scrollbar */}
+      <style jsx global>{`
+        div::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
 
       {/* Footer Instructions */}
       <div
